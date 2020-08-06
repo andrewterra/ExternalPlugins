@@ -17,19 +17,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import javax.inject.Inject;
 import lombok.extern.slf4j.Slf4j;
-import net.runelite.api.ChatMessageType;
-import net.runelite.api.Client;
-import net.runelite.api.GameState;
-import net.runelite.api.NPC;
-import net.runelite.api.NpcID;
-import net.runelite.api.Prayer;
-import net.runelite.api.Skill;
-import net.runelite.api.VarClientInt;
-import net.runelite.api.events.ChatMessage;
-import net.runelite.api.events.GameTick;
-import net.runelite.api.events.NpcDespawned;
-import net.runelite.api.events.NpcSpawned;
-import net.runelite.api.events.ProjectileMoved;
+import net.runelite.api.*;
+import net.runelite.api.events.*;
 import net.runelite.api.util.Text;
 import net.runelite.api.vars.InterfaceTab;
 import net.runelite.api.widgets.Widget;
@@ -64,6 +53,10 @@ public class BasicBossSwapper extends Plugin
 	private static final String MAGE = "the great olm fires a sphere of magical power your way";
 	private static final String RANGE = "the great olm fires a sphere of accuracy and dexterity your way";
 	private static final String MELEE = "the great olm fires a sphere of aggression your way";
+	private static final int NIGHTMARE_MELEE_ATTACK = 8594;
+	private static final int NIGHTMARE_RANGE_ATTACK = 8596;
+	private static final int NIGHTMARE_MAGIC_ATTACK = 8595;
+	private static final int NIGHTMARE_CURSE = 8599;
 
 	@Inject
 	private Client client;
@@ -88,6 +81,10 @@ public class BasicBossSwapper extends Plugin
 	private NPC nylo;
 	private boolean run;
 	private int prevNylo;
+	private NPC nm;
+	private boolean inFight;
+	private boolean cursed;
+	private int attacksSinceCurse;
 
 	@Provides
 	BasicBossSwapperConfig getConfig(ConfigManager configManager)
@@ -121,6 +118,7 @@ public class BasicBossSwapper extends Plugin
 		executor = Executors.newSingleThreadExecutor();
 		keyManager.registerKeyListener(toggle);
 		robot = new Robot();
+		reset();
 	}
 
 	@Override
@@ -129,6 +127,7 @@ public class BasicBossSwapper extends Plugin
 		executor.shutdown();
 		keyManager.unregisterKeyListener(toggle);
 		robot = null;
+		reset();
 	}
 
 	@Subscribe
@@ -253,6 +252,69 @@ public class BasicBossSwapper extends Plugin
 	}
 
 	@Subscribe
+	public void onAnimationChanged(AnimationChanged event)
+	{
+		if (!inFight || nm == null)
+		{
+			return;
+		}
+
+		Actor actor = event.getActor();
+		if (!(actor instanceof NPC))
+		{
+			return;
+		}
+
+		NPC npc = (NPC) actor;
+		int id = npc.getId();
+		int animationId = npc.getAnimation();
+
+		switch (animationId) {
+			case NIGHTMARE_MAGIC_ATTACK:
+				attacksSinceCurse++;
+				if (cursed) {
+					if (config.swapNightmareAutos() && !client.isPrayerActive(Prayer.PROTECT_FROM_MELEE))
+						swapMelee = true;
+				} else {
+					if (config.swapNightmareAutos() && !client.isPrayerActive(Prayer.PROTECT_FROM_MAGIC))
+						swapMage = true;
+				}
+				break;
+			case NIGHTMARE_MELEE_ATTACK:
+				attacksSinceCurse++;
+				if (cursed) {
+					if (config.swapNightmareMelee() && !client.isPrayerActive(Prayer.PROTECT_FROM_MISSILES))
+						swapRange = true;
+				} else {
+					if (config.swapNightmareMelee() && !client.isPrayerActive(Prayer.PROTECT_FROM_MELEE))
+						swapMelee = true;
+				}
+				break;
+			case NIGHTMARE_RANGE_ATTACK:
+				attacksSinceCurse++;
+				if (cursed) {
+					if (config.swapNightmareAutos() && !client.isPrayerActive(Prayer.PROTECT_FROM_MAGIC))
+						swapMage = true;
+				} else {
+					if (config.swapNightmareAutos() && !client.isPrayerActive(Prayer.PROTECT_FROM_MISSILES))
+						swapRange = true;
+				}
+				break;
+			case NIGHTMARE_CURSE:
+				cursed = true;
+				attacksSinceCurse = 0;
+				break;
+		}
+
+		if (cursed && attacksSinceCurse == 5)
+		{
+			//curse is removed when she phases, or does 5 attacks
+			cursed = false;
+			attacksSinceCurse = -1;
+		}
+	}
+
+	@Subscribe
 	public void onNpcSpawned(NpcSpawned event)
 	{
 		final NPC npc = event.getNpc();
@@ -276,6 +338,54 @@ public class BasicBossSwapper extends Plugin
 		if (npc.getId() == NpcID.NYLOCAS_VASILIAS)
 		{
 			nylo = null;
+		}
+	}
+
+	@Subscribe
+	public void onNpcDefinitionChanged(NpcDefinitionChanged event)
+	{
+		final NPC npc = event.getNpc();
+
+		if (npc == null)
+		{
+			return;
+		}
+
+		//this will trigger once when the fight begins
+		if (npc.getId() == 9432)
+		{
+			//reset everything
+			reset();
+			nm = npc;
+			inFight = true;
+		}
+
+		//if ID changes to 9431 (3rd phase) and is cursed, remove the curse
+		if (cursed && npc.getId() == 9431)
+		{
+			cursed = false;
+			attacksSinceCurse = -1;
+		}
+
+	}
+
+	private void reset()
+	{
+		inFight = false;
+		nm = null;
+		cursed = false;
+		attacksSinceCurse = 0;
+	}
+
+	@Subscribe
+	private void onGameStateChanged(GameStateChanged event)
+	{
+		GameState gamestate = event.getGameState();
+
+		//if loading happens while inFight, the user has left the area (either via death or teleporting).
+		if (gamestate == GameState.LOADING && inFight)
+		{
+			reset();
 		}
 	}
 

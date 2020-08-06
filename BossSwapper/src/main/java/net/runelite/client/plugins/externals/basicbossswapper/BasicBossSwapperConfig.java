@@ -131,5 +131,40 @@ public interface BasicBossSwapperConfig extends Config
 	{
 		return "11665,12006,6570,19553,12954";
 	}
+
+	@ConfigTitleSection(
+			position = 3,
+			keyName = "nightmareConfig",
+			name = "Nightmare Config",
+			description = ""
+	)
+	default Title nightmareConfig()
+	{
+		return new Title();
+	}
+
+	@ConfigItem(
+			position = 1,
+			keyName = "swapNightmareAutos",
+			name = "Swap on Auto Attacks",
+			description = "This will swap prayers for nightmare's auto attacks as-well.",
+			titleSection = "nightmareConfig"
+	)
+	default boolean swapNightmareAutos()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+			position = 2,
+			keyName = "swapNightmareMelee",
+			name = "Swap on Melee Attacks",
+			description = "This will swap prayers for nightmare's melee attacks as-well.",
+			titleSection = "nightmareConfig"
+	)
+	default boolean swapNightmareMelee()
+	{
+		return false;
+	}
 }
 
